@@ -1,5 +1,6 @@
 package com.globo.application.security;
 
+import com.globo.application.exceptions.CustomException;
 import com.globo.application.models.UserDetailsImplModel;
 import com.globo.application.models.UserModel;
 import com.globo.application.repositories.UserRepository;
@@ -38,16 +39,17 @@ public class UserAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        var loggedUser = userService.getLoggedInUsername(request);
 
-        if (loggedUser != null) {
+        if (checkIfEndpointIsNotPublic(request) ) {
+            String token = recoveryToken(request);
 
-            if (checkIfEndpointIsNotPublic(request) && !loggedUser.getDisabled()) {
-
-                String token = recoveryToken(request);
-                if (token != null) {
+            try {
+                if (token != null && !"null".equals(token)) {
                     String subject = jwtTokenService.getSubjectFromToken(token);
                     UserModel user = userRepository.findByEmail(subject);
+
+                    if (user.getDisabled()) throw new CustomException("usuário desativado" + request.getRequestURI());
+
                     UserDetailsImplModel userDetails = new UserDetailsImplModel(user);
 
                     Authentication authentication =
@@ -55,8 +57,12 @@ public class UserAuthenticationFilter extends OncePerRequestFilter {
 
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 } else {
-                    throw new RuntimeException("O token está ausente.");
+                    throw new CustomException("O token está ausente." + request.getRequestURI());
                 }
+            } catch (CustomException e) {
+                System.err.println(e.getMessage());
+            } catch ( RuntimeException e) {
+                System.err.println("Erro inesperado: " + e.getClass().getSimpleName() + " - " + e.getMessage());
             }
         }
         filterChain.doFilter(request, response);
